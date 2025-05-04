@@ -1,0 +1,113 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+      target: development
+    volumes:
+      - ./apps/gateway:/app/apps/gateway
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json
+      - ./tsconfig.json:/app/tsconfig.json
+    environment:
+      CHOKIDAR_USEPOLLING: true
+      CHOKIDAR_INTERVAL: 300
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/health/readiness" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  fb-collector:
+    build:
+      context: .
+      dockerfile: apps/fb-collector/Dockerfile
+      target: development
+    volumes:
+      - ./apps/fb-collector:/app/apps/fb-collector
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json
+      - ./tsconfig.json:/app/tsconfig.json
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CHOKIDAR_USEPOLLING: true
+      CHOKIDAR_INTERVAL: 300
+    command: npm run start:dev:fb
+    depends_on:
+      nats:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/health/readiness" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  ttk-collector:
+    build:
+      context: .
+      dockerfile: apps/ttk-collector/Dockerfile
+      target: development
+    volumes:
+      - ./apps/ttk-collector:/app/apps/ttk-collector
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json
+      - ./tsconfig.json:/app/tsconfig.json
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CHOKIDAR_USEPOLLING: true
+      CHOKIDAR_INTERVAL: 300
+    command: npm run start:dev:ttk
+    depends_on:
+      nats:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/health/readiness" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  reporter:
+    build:
+      context: .
+      dockerfile: apps/reporter/Dockerfile
+      target: development
+    volumes:
+      - ./apps/reporter:/app/apps/reporter
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./test:/app/test
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CHOKIDAR_USEPOLLING: true
+      CHOKIDAR_INTERVAL: 300
+    command: npm run start:dev:reporter
+    ports:
+      - "4000:3000"
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/health/readiness" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s

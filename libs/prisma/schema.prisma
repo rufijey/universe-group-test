@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model FacebookUser {
+  userId  String          @id
+  name    String
+  age     Int
+  gender  String
+  country String
+  city    String
+  events  FacebookEvent[]
+}
+
+model FacebookEvent {
+  eventId          String                    @id
+  timestamp        DateTime
+  funnelStage      String
+  eventType        String
+  user             FacebookUser              @relation(fields: [userId], references: [userId])
+  userId           String
+  engagementTop    FacebookEngagementTop?
+  engagementBottom FacebookEngagementBottom?
+}
+
+model FacebookEngagementTop {
+  facebookEventId String        @id
+  facebookEvent   FacebookEvent @relation(fields: [facebookEventId], references: [eventId])
+  actionTime      DateTime
+  referrer        String
+  videoId         String?
+}
+
+model FacebookEngagementBottom {
+  facebookEventId String        @id
+  facebookEvent   FacebookEvent @relation(fields: [facebookEventId], references: [eventId])
+  adId            String
+  campaignId      String
+  clickPosition   String
+  device          String
+  browser         String
+  purchaseAmount  Decimal?      @db.Decimal(10, 2)
+}
+
+model TiktokUser {
+  userId    String        @id
+  username  String
+  followers Int
+  events    TiktokEvent[]
+}
+
+model TiktokEvent {
+  eventId          String                  @id
+  timestamp        DateTime
+  funnelStage      String
+  eventType        String
+  user             TiktokUser              @relation(fields: [userId], references: [userId])
+  userId           String
+  engagementTop    TiktokEngagementTop?
+  engagementBottom TiktokEngagementBottom?
+}
+
+model TiktokEngagementTop {
+  tiktokEventId     String      @id
+  tiktokEvent       TiktokEvent @relation(fields: [tiktokEventId], references: [eventId])
+  watchTime         Int
+  percentageWatched Int
+  device            String
+  country           String
+  videoId           String
+}
+
+model TiktokEngagementBottom {
+  tiktokEventId  String      @id
+  tiktokEvent    TiktokEvent @relation(fields: [tiktokEventId], references: [eventId])
+  actionTime     DateTime
+  profileId      String?
+  purchasedItem  String?
+  purchaseAmount Decimal?    @db.Decimal(10, 2)
+}
