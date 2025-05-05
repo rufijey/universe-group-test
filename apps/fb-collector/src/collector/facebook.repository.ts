@@ -13,7 +13,7 @@ export class FacebookRepository {
   ) {}
 
 
-  async creatUser(user: FacebookUser){
+  async createUser(user: FacebookUser){
 
     await this.prisma.facebookUser.upsert({
       where: { userId: user.userId },

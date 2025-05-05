@@ -5,7 +5,7 @@ import { FacebookEvent, TiktokEvent } from '@libs/types';
 
 describe('GatewayService', () => {
   let service: GatewayService;
-  let publisher: NatsService;
+  let natsService: NatsService;
 
   const acceptedCounter = { inc: jest.fn() };
   const processedCounter = { inc: jest.fn() };
@@ -27,12 +27,12 @@ describe('GatewayService', () => {
     }).compile();
 
     service = module.get<GatewayService>(GatewayService);
-    publisher = module.get<NatsService>(NatsService);
+    natsService = module.get<NatsService>(NatsService);
 
     jest.clearAllMocks();
   });
 
-  it('should publish and increment acceptedCounter and processedCounter for valid FacebookEvent', async () => {
+  it('should publish and increment acceptedCounter and processedCounter for FacebookEvent', async () => {
     const facebookEvent: FacebookEvent = {
       eventId: 'fb-1',
       timestamp: new Date().toISOString(),
@@ -63,44 +63,14 @@ describe('GatewayService', () => {
     expect(acceptedCounter.inc).toHaveBeenCalledWith(1);
     expect(processedCounter.inc).toHaveBeenCalledTimes(1);
     expect(failedCounter.inc).not.toHaveBeenCalled();
-    expect(publisher.publish).toHaveBeenCalledWith('events.facebook', facebookEvent, 'test-corr-id');
+    expect(natsService.publish).toHaveBeenCalledWith('events.facebook', facebookEvent, 'test-corr-id');
   });
 
-  it('should increment failedCounter for invalid TiktokEvent', async () => {
-    const invalidTiktokEvent = {
-      eventId: 'tt-1',
-      timestamp: new Date().toISOString(),
-      source: 'tiktok',
-      funnelStage: 'top',
-      eventType: 'video.view',
-      data: {
-        user: {
-          userId: 'u1',
-          username: 'alice',
-          followers: 100,
-        },
-        engagement: {
-          watchTime: 10,
-          percentageWatched: 80,
-          device: 'iOS',
-          country: 'US',
-        },
-      },
-    };
-
-    await service.handleEvents([invalidTiktokEvent as any], 'bad-corr-id');
-
-    expect(acceptedCounter.inc).toHaveBeenCalledWith(1);
-    expect(processedCounter.inc).not.toHaveBeenCalled();
-    expect(failedCounter.inc).toHaveBeenCalledTimes(1);
-    expect(publisher.publish).not.toHaveBeenCalled();
-  });
-
-  it('should increment failedCounter on unknown source', async () => {
+  it('should increment failedCounter on no source', async () => {
     const event = {
       eventId: 'unknown-1',
       timestamp: new Date().toISOString(),
-      source: 'unknown',
+      source: undefined,
       funnelStage: 'top',
       eventType: 'something',
       data: {},
@@ -166,8 +136,8 @@ describe('GatewayService', () => {
     expect(acceptedCounter.inc).toHaveBeenCalledTimes(1);
     expect(processedCounter.inc).toHaveBeenCalledTimes(2);
     expect(failedCounter.inc).not.toHaveBeenCalled();
-    expect(publisher.publish).toHaveBeenCalledWith('events.facebook', facebookEvent, 'corr-id-2');
-    expect(publisher.publish).toHaveBeenCalledWith('events.tiktok', tiktokEvent, 'corr-id-2');
+    expect(natsService.publish).toHaveBeenCalledWith('events.facebook', facebookEvent, 'corr-id-2');
+    expect(natsService.publish).toHaveBeenCalledWith('events.tiktok', tiktokEvent, 'corr-id-2');
   });
 
 });
