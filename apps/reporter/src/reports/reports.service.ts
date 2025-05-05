@@ -1,4 +1,3 @@
-// reports.service.ts
 import { Injectable } from '@nestjs/common';
 import { ReportsRepository } from './reports.repository';
 import { EventStatsDto } from './dto/event-stats.dto';
