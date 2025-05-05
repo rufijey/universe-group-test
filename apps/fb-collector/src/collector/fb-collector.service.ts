@@ -13,6 +13,7 @@ import { Counter } from 'prom-client';
 @Injectable()
 export class FbCollectorService implements OnModuleInit {
   private readonly logger = new Logger(FbCollectorService.name);
+  private readonly STREAM_NAME = "events_facebook";
   private readonly DURABLE_NAME = "fb-collector-durable";
   private readonly SUBJECT = "events.facebook";
 
@@ -29,11 +30,12 @@ export class FbCollectorService implements OnModuleInit {
 
   async onModuleInit() {
     await this.natsService.subscribe(
+      this.STREAM_NAME,
       this.SUBJECT,
-      async (event, headers) => {
-        await this.handleFacebookEvent(event, headers?.["x-correlation-id"]);
+      async (event, headers: any) => {
+        await this.handleFacebookEvent(event, headers?.headers.get("x-correlation-id")?.[0]);
       },
-      this.DURABLE_NAME,
+      this.DURABLE_NAME
     );
   }
 
@@ -57,7 +59,6 @@ export class FbCollectorService implements OnModuleInit {
       this.failedEvents.inc({ platform: "facebook" });
       this.logger.error(
         `[${correlationId}] Failed to process FB event ${event.eventId}`,
-        // err instanceof Error ? err.stack : err,
       );
       throw err;
     }

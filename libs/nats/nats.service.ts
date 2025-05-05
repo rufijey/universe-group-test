@@ -9,11 +9,12 @@ import {
   NatsConnection,
   JetStreamClient,
   StringCodec,
-  JetStreamSubscription,
   headers,
   JsMsg,
-  ConsumerConfig,
-  consumerOpts, JetStreamManager,
+  AckPolicy,
+  DeliverPolicy,
+  ReplayPolicy,
+  JetStreamManager,
 } from 'nats';
 import { Event } from "@libs/types";
 import { ConfigService } from "@nestjs/config";
@@ -25,7 +26,7 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
   protected js: JetStreamClient;
   private jsm: JetStreamManager;
   protected readonly sc = StringCodec();
-  private subscriptions: JetStreamSubscription[] = [];
+  private isRunning = true;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -44,63 +45,91 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async subscribe(
+    streamName: string,
     subject: string,
     callback: (data: Event, headers?: Record<string, string>) => Promise<void>,
     durableName?: string,
-  ): Promise<JetStreamSubscription> {
+  ): Promise<void> {
     try {
-      const deliverTo = `${subject}.${durableName || "default-durable"}.deliver`;
+      const consumerName = durableName || `consumer-${streamName}`;
 
-      const opts = consumerOpts()
-        .deliverAll()
-        .ackExplicit()
-        .durable(durableName || "default-durable")
-        .deliverTo(deliverTo)
-        .manualAck()
-        .replayInstantly();
+      await this.jsm.streams.info(streamName);
+      this.logger.log(`Stream "${streamName}" found`);
 
-      const sub = await this.js.subscribe(subject, opts);
-      this.logger.log(`Successfully subscribed to ${subject}`);
+      try {
+        await this.jsm.consumers.add(streamName, {
+          durable_name: consumerName,
+          ack_policy: AckPolicy.Explicit,
+          deliver_policy: DeliverPolicy.All,
+          replay_policy: ReplayPolicy.Instant,
+          filter_subject: subject,
+        });
+        this.logger.log(`Consumer "${consumerName}" created in stream "${streamName}"`);
+      } catch (err) {
+        if (!err.message.includes("already exists")) {
+          throw err;
+        }
+        this.logger.log(`Consumer "${consumerName}" already exists`);
+      }
+
+      const consumer = await this.js.consumers.get(streamName, consumerName);
+      this.logger.log(`Subscribed to "${subject}" in stream "${streamName}"`);
 
       (async () => {
-        for await (const msg of sub) {
+        while (this.isRunning) {
           try {
-            const data = JSON.parse(this.sc.decode(msg.data)) as Event;
+            const messages = await consumer.consume();
+            for await (const msg of messages) {
+              if (!this.isRunning) break;
 
-            let msgHeaders: Record<string, string> | undefined;
-            if (msg.headers) {
-              msgHeaders = {};
-              for (const [key, values] of Object.entries(msg.headers)) {
-                msgHeaders[key] = Array.isArray(values) ? values[0] : values;
+              try {
+                const data = JSON.parse(this.sc.decode(msg.data)) as Event;
+                const msgHeaders = this.parseHeaders(msg.headers);
+                await callback(data, msgHeaders);
+                msg.ack();
+              } catch (err) {
+                this.logger.error(`Error processing message: ${err.message}`);
               }
             }
-
-            await callback(data, msgHeaders);
-            msg.ack();
           } catch (err) {
-            this.logger.error(`Error processing message on ${subject}`, err);
+            this.logger.error(`Consume error: ${err.message}`);
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Задержка перед повторной попыткой
           }
         }
-      })().catch((err) => {
-        this.logger.error(`Subscription loop error for ${subject}`, err);
+      })().catch(err => {
+        this.logger.error(`Subscription loop crashed: ${err.message}`);
       });
 
-      this.subscriptions.push(sub);
-      return sub;
     } catch (err) {
-      this.logger.error(`Failed to subscribe to ${subject}`, err);
+      this.logger.error(
+        `Failed to subscribe to stream "${streamName}" (subject: "${subject}")`,
+        err,
+      );
       throw err;
     }
   }
 
-  async publish(subject: string, data: Event, correlationId: string) {
+
+  async publish(
+    subject: string,
+    data: Event,
+    correlationId: string,
+  ): Promise<void> {
     const hdrs = headers();
     hdrs.set("x-correlation-id", correlationId);
 
     await this.js.publish(subject, this.sc.encode(JSON.stringify(data)), {
       headers: hdrs,
     });
+  }
 
+  private parseHeaders(msgHeaders?: any): Record<string, string> | undefined {
+    if (!msgHeaders) return undefined;
+    const headers: Record<string, string> = {};
+    for (const [key, values] of Object.entries(msgHeaders)) {
+      headers[key] = Array.isArray(values) ? values[0] : values;
+    }
+    return headers;
   }
 
   getJetStreamManager(): JetStreamManager {
@@ -111,10 +140,8 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    for (const sub of this.subscriptions) {
-      await sub.drain();
-    }
+    this.isRunning = false;
     await this.nc?.drain();
-    this.logger.log("NATS connection drained");
+    this.logger.log("NATS connection closed gracefully");
   }
 }

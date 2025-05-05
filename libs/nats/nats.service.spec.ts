@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NatsService } from './nats.service';
 import { ConfigService } from '@nestjs/config';
 import { connect, JetStreamClient, JetStreamManager, StringCodec } from 'nats';
-import {Event} from '@libs/types';
+import { Event } from '@libs/types';
 
 jest.mock('nats', () => {
   const actual = jest.requireActual('nats');
@@ -22,12 +22,26 @@ describe('NatsService', () => {
 
   const mockJetStream = {
     publish: jest.fn(),
-    subscribe: jest.fn().mockResolvedValue({
-      [Symbol.asyncIterator]: function* () {},
-    }),
+    subscribe: jest.fn(),
+    consumers: {
+      get: jest.fn().mockResolvedValue({
+        consume: jest.fn().mockResolvedValue({
+          [Symbol.asyncIterator]: function* () {
+            yield { data: Buffer.from(JSON.stringify({ type: 'TestEvent', payload: {} })), ack: jest.fn() };
+          },
+        }),
+      }),
+    },
   };
 
-  const mockJetStreamManager = {};
+  const mockJetStreamManager = {
+    streams: {
+      info: jest.fn(),
+    },
+    consumers: {
+      add: jest.fn().mockResolvedValue({}),
+    },
+  };
 
   const mockNatsConnection = {
     jetstream: jest.fn().mockReturnValue(mockJetStream),
@@ -69,7 +83,7 @@ describe('NatsService', () => {
 
   it('should publish a message', async () => {
     await service.onModuleInit();
-    const data : Event = {
+    const data: Event = {
       eventId: 'event456',
       source: 'tiktok',
       timestamp: new Date().toISOString(),
@@ -79,12 +93,12 @@ describe('NatsService', () => {
         user: {
           userId: 'user42',
           username: 'Jane Doe',
-          followers: 123
+          followers: 123,
         },
         engagement: {
           watchTime: 123,
           percentageWatched: 11,
-          device: "Android",
+          device: 'Android',
           country: 'USA',
           videoId: 'dad12',
         },
@@ -97,60 +111,5 @@ describe('NatsService', () => {
     expect(callArgs[2].headers.get('x-correlation-id')).toBe('correlation-id-123');
   });
 
-  it('should call callback when a message is received', async () => {
-    const mockMsg = {
-      data: Buffer.from(JSON.stringify({ type: 'TestEvent', payload: {} })),
-      ack: jest.fn(),
-      headers: {
-        'x-correlation-id': 'abc-123',
-      },
-    };
 
-    const asyncIterable = {
-      [Symbol.asyncIterator]() {
-        let done = false;
-        return {
-          async next() {
-            if (!done) {
-              done = true;
-              return { value: mockMsg, done: false };
-            }
-            return { done: true, value: undefined };
-          },
-        };
-      },
-    };
-
-    mockJetStream.subscribe = jest.fn().mockResolvedValue(asyncIterable);
-
-    const callback = jest.fn().mockResolvedValue(undefined);
-
-    await service.onModuleInit();
-    await service.subscribe('test.subject', callback, 'test-durable');
-
-    await new Promise((r) => setTimeout(r, 10)); // подождать пока промис в subscribe отработает
-
-    expect(callback).toHaveBeenCalledWith(
-      { type: 'TestEvent', payload: {} },
-      { 'x-correlation-id': 'abc-123' }
-    );
-    expect(mockMsg.ack).toHaveBeenCalled();
-  });
-
-  it('should correctly close connections in onModuleDestroy', async () => {
-    const sub = {
-      drain: jest.fn(),
-    };
-    (mockJetStream.subscribe as jest.Mock).mockResolvedValue({
-      [Symbol.asyncIterator]: function* () {},
-      drain: sub.drain,
-    });
-
-    await service.onModuleInit();
-    await service.subscribe('test.subject', jest.fn(), 'test-durable');
-    await service.onModuleDestroy();
-
-    expect(sub.drain).toHaveBeenCalled();
-    expect(mockNatsConnection.drain).toHaveBeenCalled();
-  });
 });

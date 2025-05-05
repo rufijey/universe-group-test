@@ -10,8 +10,9 @@ import { Counter, Histogram } from "prom-client";
 @Injectable()
 export class TtkCollectorService implements OnModuleInit {
   private readonly logger = new Logger(TtkCollectorService.name);
-  private readonly DURABLE_NAME = "ttk-collector-durable";
+  private readonly STREAM_NAME = "events_tiktok";
   private readonly SUBJECT = "events.tiktok";
+  private readonly DURABLE_NAME = "ttk-collector-durable";
 
   constructor(
     private readonly natsService: NatsService,
@@ -26,11 +27,12 @@ export class TtkCollectorService implements OnModuleInit {
 
   async onModuleInit() {
     await this.natsService.subscribe(
+      this.STREAM_NAME,
       this.SUBJECT,
-      async (event, headers) => {
-        await this.handleTiktokEvent(event, headers?.["x-correlation-id"]);
+      async (event, headers: any) => {
+        await this.handleTiktokEvent(event, headers?.headers.get("x-correlation-id")?.[0]);
       },
-      this.DURABLE_NAME,
+      this.DURABLE_NAME
     );
   }
 
@@ -47,15 +49,13 @@ export class TtkCollectorService implements OnModuleInit {
 
       this.processedEvents.inc({ platform: "tiktok" });
 
-      // this.logger.log(`[${correlationId}] TTK event ${event.eventId} saved`);
+      // this.logger.debug(`[${correlationId}] TTK event ${event.eventId} saved`);
 
     } catch (err) {
-
       this.failedEvents.inc({ platform: "tiktok" });
 
       this.logger.error(
         `[${correlationId}] Failed to process TTK event ${event.eventId}`,
-        // err instanceof Error ? err.stack : err,
       );
 
       throw err;
