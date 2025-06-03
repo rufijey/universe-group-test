@@ -6,6 +6,8 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { TiktokRepository } from "./tiktok.repository";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Histogram } from "prom-client";
+import { TiktokEventSchema } from './schema/tiktok-event.schema';
+import { ZodError } from 'zod';
 
 @Injectable()
 export class TtkCollectorService implements OnModuleInit {
@@ -44,6 +46,8 @@ export class TtkCollectorService implements OnModuleInit {
         throw new Error("Invalid event source, expected TikTok");
       }
 
+      TiktokEventSchema.parse(event);
+
       await this.repository.createUser(event.data.user);
       await this.repository.createEvent(event);
 
@@ -54,11 +58,16 @@ export class TtkCollectorService implements OnModuleInit {
     } catch (err) {
       this.failedEvents.inc({ platform: "tiktok" });
 
-      this.logger.error(
-        `[${correlationId}] Failed to process TTK event ${event.eventId}`,
-      );
-
-      throw err;
+      if (err instanceof ZodError) {
+        this.logger.error(
+          `[${correlationId}] Event validation failed for ${event.source}`,
+        );
+      }else{
+        this.logger.error(
+          `[${correlationId}] Failed to process TTK event ${event.eventId}`,
+        );
+        throw err;
+      }
     }
   }
 }

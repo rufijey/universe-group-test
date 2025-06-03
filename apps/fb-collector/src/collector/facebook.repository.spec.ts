@@ -44,7 +44,7 @@ describe('FacebookRepository', () => {
       },
     };
 
-    await repository.creatUser(user);
+    await repository.createUser(user);
 
     expect(prisma.facebookUser.upsert).toHaveBeenCalledWith({
       where: { userId: 'user1' },

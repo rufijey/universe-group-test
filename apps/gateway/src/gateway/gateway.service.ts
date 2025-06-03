@@ -3,16 +3,13 @@ import { Counter } from "prom-client";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { NatsService } from "@libs/nats";
 import { Event } from "@libs/types";
-import { FacebookEventSchema } from "./schema/facebook-event.schema";
-import { TiktokEventSchema } from "./schema/tiktok-event.schema";
-import { ZodError } from "zod";
 
 @Injectable()
 export class GatewayService {
   private readonly logger = new Logger(GatewayService.name);
 
   constructor(
-    private readonly publisher: NatsService,
+    private readonly natsService: NatsService,
     @InjectMetric("GATEWAY_ACCEPTED_EVENTS_TOTAL")
     private readonly acceptedCounter: Counter<string>,
     @InjectMetric("GATEWAY_PROCESSED_EVENTS_TOTAL")
@@ -28,22 +25,15 @@ export class GatewayService {
 
     for (const event of events) {
       try {
-        switch (event.source) {
-          case "facebook":
-            FacebookEventSchema.parse(event);
-            break;
-          case "tiktok":
-            TiktokEventSchema.parse(event);
-            break;
-          default:
-            throw new Error(`Unknown event source`);
-        }
+        new Date(event.timestamp);
 
-        new Date(event.timestamp)
+        if(!event.source){
+          throw new Error(`No event source`);
+        }
 
         const topic = this.getTopicForEvent(event);
 
-        await this.publisher.publish(topic, event, correlationId);
+        await this.natsService.publish(topic, event, correlationId);
 
         this.processedCounter.inc();
         processedCount++;
@@ -52,23 +42,17 @@ export class GatewayService {
         this.failedCounter.inc();
         failedCount++;
 
-        if (err instanceof ZodError) {
-          this.logger.error(
-            `[${correlationId}] Event validation failed for ${event.source}`,
-          );
-        } else {
-          this.logger.error(
-            `[${correlationId}] Failed to publish event to ${this.getTopicForEvent(event)}`,
-          );
-        }
+        this.logger.error(
+          `[${correlationId}] Failed to publish event to ${this.getTopicForEvent(event)}`,
+        );
       }
     }
 
     this.logger.log(
       `[${correlationId}] Events processing summary: ` +
-      `Total received: ${events.length}, ` +
-      `Successfully processed: ${processedCount}, ` +
-      `Failed: ${failedCount}`
+        `Total received: ${events.length}, ` +
+        `Successfully processed: ${processedCount}, ` +
+        `Failed: ${failedCount}`,
     );
   }
 
